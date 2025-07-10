@@ -145,9 +145,10 @@
                 TITLE: '정책명'
             };
             
-            const proxyUrl = 'https://api.allorigins.win/raw?url=';
+            // FIX: Unstable proxy server changed to a more reliable one.
+            const proxyUrl = 'https://corsproxy.io/?';
             const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQZqFx7woNy0WcxE1THVLC6GRnfVTX0fHlbjVaf4oj7gcNqQVdmOQCwHBIzxXZtrYFB6vTM6Rfwym5h/pub?output=csv';
-            const finalUrl = proxyUrl + encodeURIComponent(googleSheetUrl);
+            const finalUrl = proxyUrl + googleSheetUrl;
             
             // 샘플 데이터 (네트워크 오류 발생 시 대체용)
             const sampleCsvData = [
@@ -169,7 +170,6 @@
                     return parseCSV(csvText);
                 } catch (error) {
                     console.error('Error fetching Google Sheet via proxy:', error);
-                    // FIX: 네트워크 오류 시 샘플 데이터를 사용하도록 수정
                     console.warn('Using sample data due to fetch error.');
                     return parseCSV(sampleCsvData);
                 }
