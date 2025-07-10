@@ -6,7 +6,6 @@
     <title>정책 대응 현황 대시보드 (실시간)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- FIX: Added chartjs-plugin-datalabels for displaying labels directly on charts -->
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
@@ -46,6 +45,25 @@
             flex-grow: 1;
             overflow-y: auto;
         }
+        .loader-container {
+             display: flex;
+             align-items: center;
+             justify-content: center;
+             height: 100%;
+             min-height: 150px;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="bg-gray-100 p-4 sm:p-6 lg:p-8">
@@ -82,21 +100,33 @@
         <!-- Main Dashboard Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div class="card lg:col-span-1">
-                <h3 class="font-bold text-lg mb-4">대응 현황 분포</h3>
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="font-bold text-lg">대응 현황 분포</h3>
+                    <div class="flex items-center space-x-2">
+                        <label for="toggle-status-completed" class="text-sm text-gray-600 cursor-pointer">대응완료 포함</label>
+                        <input type="checkbox" id="toggle-status-completed" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+                    </div>
+                </div>
                 <p class="text-sm text-gray-500 mb-4">현재 '미대응', '대응중', '완료' 상태의 정책 비율을 우선적으로 확인합니다.</p>
-                <div class="chart-container"><canvas id="status-chart"></canvas></div>
+                <div class="chart-container" id="status-chart-container"></div>
             </div>
 
             <div class="card lg:col-span-2">
-                <h3 class="font-bold text-lg mb-4">담당자별 업무 현황</h3>
-                <p class="text-sm text-gray-500 mb-4">각 담당자에게 할당된 '대응중' 및 '미대응' 업무 건수입니다.</p>
-                 <div class="chart-container"><canvas id="assignee-chart"></canvas></div>
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="font-bold text-lg">담당자별 업무 현황</h3>
+                    <div class="flex items-center space-x-2">
+                        <label for="toggle-assignee-completed" class="text-sm text-gray-600 cursor-pointer">대응완료 포함</label>
+                        <input type="checkbox" id="toggle-assignee-completed" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500 mb-4">담당자별 전체 업무의 '대응완료', '대응중', '미대응' 현황입니다.</p>
+                 <div class="chart-container" id="assignee-chart-container"></div>
             </div>
 
             <div class="card">
                 <h3 class="font-bold text-lg mb-4">발신처별 정책 분포</h3>
                 <p class="text-sm text-gray-500 mb-4">어떤 발신처에서 정책이 가장 많이 접수되었는지 보여줍니다.</p>
-                <div class="chart-container"><canvas id="platform-chart"></canvas></div>
+                <div class="chart-container" id="platform-chart-container"></div>
             </div>
 
             <div class="card">
@@ -108,14 +138,13 @@
             <div class="card">
                 <h3 class="font-bold text-lg mb-4">카테고리별 정책 분포</h3>
                 <p class="text-sm text-gray-500 mb-4">각 카테고리별 정책이 몇 건 있는지 보여줍니다.</p>
-                <div class="chart-container"><canvas id="category-chart"></canvas></div>
+                <div class="chart-container" id="category-chart-container"></div>
             </div>
         </div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // Register the datalabels plugin globally
             Chart.register(ChartDataLabels);
 
             const COLUMN_MAP = {
@@ -127,62 +156,84 @@
                 TITLE: '정책명'
             };
             
-            const csvData = `정책ID,수신일,발신처,정책명,AI요약,주요변경사항,카테고리,마감/적용일,상태,담당자,메모,원문 메일
-Google_PlayUpdate,2025-07-02 10:23,Google,"Swipe Brick Breaker 업데이트 완료","Swipe Brick Breaker: The Blast의 업데이트가 스토어에 반영되었습니다. 업데이트는 2025년 7월 2일에 생성되었습니다. 앱이 라이브된 후, 알림 설정 변경이 가능합니다.",해당 없음,기타,N/A,대응완료,정조원,벽돌깨기 업데이트 알림 대응필요x,https://mail.google.com/mail/u/0/#inbox/197c8bb7deea7c28
-Google_비어있는인페이지광고,2025-07-04 1:23,Google,애드센스 새로운 광고 설정,"Google 애드센스는 게시자의 수익 보호를 위해 '비어 있는 인페이지 광고 채우기' 설정을 도입합니다. 이 설정은 향후 30일 동안 모든 게시자에게 자동 적용될 예정입니다. 게시자는 별도의 조치 없이도 이 새로운 광고 최적화를 이용할 수 있으며, 원치 않을 경우 해당 기능을 비활성화할 수 있습니다.","모든 게시자에게 자동으로 '비어 있는 인페이지 광고 채우기' 설정이 적용됩니다. 디스플레이 광고를 사용할 수 없는 경우 애드센스에서 광고 공간을 자동 최적화할지 여부 선택 가능. 설정을 비활성화하려면 애드센스 계정에 로그인하여 '브랜드 안전성' > '콘텐츠' > '차단 설정' > '디스플레이 광고' 섹션 흐름을 따라 설정 변경 필요.",광고 가이드라인,N/A,대응완료,정조원,,https://mail.google.com/mail/u/0/#inbox/197d1199611d6dc3
-Meta_데이터접근갱신,2025-07-01 23:28,Meta,House of Poker 앱 데이터 접근 갱신,"Meta는 House of Poker 앱의 데이터 접근 권한 갱신이 필요하다고 알림. 개발자는 정조원님으로 설정되어 있는 이메일을 통해 이 정보를 전달했음. 추가적인 세부사항은 제공되지 않았음.","데이터 보안 평가 https://developers.facebook.com/required-actions/?action_id=4209876379248239",필수 조치,2025-07-20,미대응,정조원,,https://mail.google.com/mail/u/0/#inbox/197c66388cb327e3
-Google_결제라이브러리_2025_8,2025-07-02 2:54,Google,Google Play 결제 라이브러리 업데이트 필요,"Google Play는 결제 라이브러리 요구사항을 변경하여 2025년 8월 31일부터 모든 앱이 7.0.0 이상의 버전을 사용해야 합니다. 사용 중인 기존 결제 라이브러리 버전은 지원이 중단될 예정입니다. 우리 앱이 영향을 받기 때문에 업데이트를 통해 최신 기능을 사용해야 합니다.","• 2025년 8월 31일부터 모든 앱은 Google Play 결제 라이브러리 7.0.0 이상을 사용해야 함 • House of Blackjack 21, House of Poker - Texas Holdem, House of Slots - Casino Games가 영향을 받음 • 우리 앱의 영향 여부 확인 필요",결제 정책,2025-08-31,대응중,정조원,"블루사업실 포커/쇼다운홀덤 의 구글 정책 대응은 8월 점검에 반영 할 예정 https://jira.neowiz.com/browse/PRODPOKER-27533 글로벌은 결제대응 필요X",https://mail.google.com/mail/u/0/#inbox/197c720652634168
-Google_대상API수준,2025-07-02 3:02,Google,대상 API 수준 요구사항 변경,"Google Play의 모든 앱은 2025년 8월 31일까지 최신 Android API 수준을 충족해야 합니다. 10개의 타겟 앱이 이전 버전의 Android를 타겟팅하고 있어 업데이트가 필요합니다. 업데이트를 통해 사용자에게 안전하고 보안이 유지되는 환경을 제공합니다.","• 모든 앱은 2025년 8월 31일까지 최신 Android API 수준을 충족해야 함 • 우리 앱의 영향 여부 확인 필요",필수 조치,2025-08-31,대응중,주상하,"[타겟 API 대응] H시리즈 3종 : 7월 임시점검(7월 중순 이후 예상) 뉴베가스 : 8월 정기점검",https://mail.google.com/mail/u/0/#inbox/197c7277ef37add2
-Facebook_데이터다운로드,2025-06-27 4:30,Facebook,House of Slots 관련 데이터 다운로드 알림,"Facebook에서 House of Slots 앱에 대한 설정 정보 다운로드가 가능합니다. 앱 ID는 1470058413134770이며, 관련 관리자는 MassiveGaming입니다. 이번 알림은 회원 요청에 의해 전송되었습니다.","House of Slots에 대한 사용자 데이터 삭제 요청 ",기타,N/A,대응완료,주상하,사용자 데이터 삭제요청으로 추가 대응 X,https://mail.google.com/mail/u/0/#inbox/197adb89183b85d4
-Google_앱업데이트,2025-07-07 11:10,Google,앱 업데이트 완료 알림,"BrownDust2 - Adventure RPG 앱이 성공적으로 Google Play 스토어에 업데이트되었습니다. 이메일 알림 설정을 변경하여 업데이트 알림을 받지 않을 수 있습니다.",우리 앱 영향 가능성 없음,기타,N/A,대응완료,정조원,,https://mail.google.com/mail/u/0/#inbox/197e2a5e7f68f498
-Google_PlayConsole요구사항,2025-07-05 10:52,Google,피망 섯다 앱 정책 위반 문제,"피망 섯다 앱이 Google Play의 개발자 프로그램 정책을 준수하지 않아 거부되었습니다. 제공된 로그인 사용자 인증 정보가 잘못된 것으로 나타나, 앱 검토에 필요한 정보가 부족했습니다. 유효한 인증 정보를 제공하여 문제를 해결하고 업데이트된 앱을 제출해야 합니다.","• 우리 앱 '피망 섯다' 로그인 사용자 인증 정보 업데이트 요구됨",필수 조치,N/A,대응완료,김종익,현재는 해외로그인 설정을 해제하여 정상적인 심사가 가능,https://mail.google.com/mail/u/0/#inbox/197d848a248cc00d
-Google_FirebaseStudio,2025-07-08 17:08,Google,Firebase Studio 및 AI 기능 업데이트,"Firebase Studio에서 주석 추가와 변경사항 롤백 등 여러 기능을 활용하여 작업 효율성을 높이는 팁을 제공합니다. AI 어시스턴트와 통합된 MCP 서버를 활용해 Firebase를 보다 강력하게 구성할 수 있도록 하고, Firebase AI Logic 클라이언트 SDK로 기기 내 AI 모델을 클라우드 호스팅 모델로 손쉽게 대체하는 방법도 소개합니다. 또한 A/B 테스트를 통해 플레어 경험을 동적으로 맞춤설정할 수 있다는 사례를 제공합니다.",우리 앱의 영향 여부 확인 필요,기타,N/A,대응완료,정조원,[후속 메일] (수신: 2025-07-08 17:08),https://docs.google.com/document/d/1fnqWV7flSmio9hgTR9Vh-eiJEJNJntSF-3ALOVXy3Nw/edit?usp=drivesdk
-Google_SQL기본언어변경_2025_08,2025-07-09 4:10,"Google Cloud Platform",GoogleSQL 기본 언어 변경,"2025년 8월 1일부터 BigQuery API 및 CLI의 기본 언어가 LegacySQL에서 GoogleSQL로 변경됩니다. LegacySQL을 계속 사용하려면 useLegacySql 플래그 등 특정 옵션을 설정해야 합니다. 조치를 취하지 않으면 GoogleSQL에서 지원하지 않는 LegacySQL 문법을 사용할 경우 쿼리가 실패할 수 있습니다.","• 2025년 8월 1일부터 BigQuery API 및 CLI의 기본 언어가 GoogleSQL로 변경됨 • LegacySQL을 사용하려면 useLegacySql 플래그 설정 필요 • 'default_sql_dialect_option'을 'default_legacy_sql'로 설정하면 LegacySQL 유지 가능 • 우리 앱 영향 가능성 있음",필수 조치,2025-07-20,대응중,정조원,인우님이 먼저 확인해서 데이터허브팀으로 문의주신상태,https://mail.google.com/mail/u/0/#inbox/197eb726a6a9baf2
-Firebase_HouseOfBlackjack,2025-07-10 7:22,Firebase,House of Blackjack 크래시 발생,"Firebase에서 House of Blackjack 앱의 1.11.7 버전에서 전체 세션의 3.36%에 장애가 발생 중이라는 알림을 보냈습니다. 이 문제는 2022-08-11에 처음 확인되었으며, 최근 한 시간 내에 활동이 급증했습니다. 문제 해소를 위한 추가 조치가 필요합니다.","• House of Blackjack 앱 1.11.7 버전에서 장애 발생 • 문제 조사 및 수정 필요",기타,N/A,대응완료,정조원,"위 장애 현상은 유저 1명에게서 83회 발생된 내용이며, 특정 구형 단말 사용자에 의해 광고 반복 실행으로 앱이 비정상 종료되었습니다. 곧 업데이트 패치 예정이라, 큰 특이사항 없을 것으로 보입니다.",https://mail.google.com/mail/u/0/#inbox/197f148339c674e1
-Google_쿼리언어_2025_08,2025-07-09 4:10,"Google Cloud Platform",BigQuery 언어 변경,"2025년 8월 1일부터 BigQuery API 및 CLI의 쿼리 기본 언어가 LegacySQL에서 GoogleSQL로 변경됩니다. LegacySQL을 계속 사용하려면 명시적으로 지정해야 하며, 이미 GoogleSQL을 사용하는 시스템에는 변화가 없습니다. 변경사항에 따라 필요한 조치를 취해야 합니다.","• BigQuery CLI 및 API 기본 언어가 LegacySQL에서 GoogleSQL로 변경 • GoogleSQL은 이미 콘솔 및 드라이버에 기본 적용 • LegacySQL 사용 시 명확한 설정이 필요",필수 조치,2025-08-01,미대응,정조원,,https://mail.google.com/mail/u/0/#inbox/197eb726a6a9baf2
-Firebase_장애_알림,2025-07-10 7:22,Firebase,Firebase 장애 알림,"1.11.7 버전에서 전체 세션의 3.36%에 장애 발생. 문제가 2022-08-11에 최초 확인되었으며, 최근 활동 급증. Firebase에서 중요한 서비스 정보 알림.","• 1.11.7 버전에서 전체 세션의 3.36% 장애 발생 • 최근 활동이 급증하여 문제 심각성 증가",기타,N/A,미대응,주상하,,https://mail.google.com/mail/u/0/#inbox/197f148339c674e1
-Google_House_of_Blackjack_2025,2025-07-10 10:18,Google,House of Blackjack 앱 비정상 종료 문제,"Firebase에서 신속 알림을 통해 House of Blackjack 앱의 1.11.7 버전에서 전체 세션의 3.36%가 비정상 종료되고 있음을 보고했습니다. 이 문제는 2022-08-11에 처음 발견되었으며 최근 활동이 급증했습니다. 우리는 이 문제를 조사하고 필요시 수정할 필요가 있습니다.","House of Blackjack 앱의 비정상 종료 비율 증가 1.11.7 버전에서 특정 문제 발생",보안 알림,N/A,미대응,주상하,,https://mail.google.com/mail/u/0/#inbox/197f1e9c12d52b31
-Neowiz_HouseOfBlackjack_Issue,2025-07-10 14:26,Neowiz,House of Blackjack 앱 비정상 종료 이슈,"House of Blackjack 앱에서 특정 구형 단말 사용자에 의해 비정상 종료 이슈가 발생하고 있습니다. 전체 세션의 3.36%에서 문제가 발생했으며, 구형 기기에서 광고 반복 실행으로 인해 앱이 종료되었습니다. 장기적인 대응 필요성은 낮으며, 패치가 예정되어 있습니다.","• 전체 세션의 3.36%에서 앱 비정상 종료 발생 • 특정 기기에서 광고 반복 실행 패턴으로 인한 종료 문제 • 최신 SDK로 패치 예정",기타,N/A,미대응,김종익,,https://mail.google.com/mail/u/0/#inbox/197f2ccac2e8b7ea`;
+            const proxyUrl = 'https://corsproxy.io/?';
+            const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQZqFx7woNy0WcxE1THVLC6GRnfVTX0fHlbjVaf4oj7gcNqQVdmOQCwHBIzxXZtrYFB6vTM6Rfwym5h/pub?output=csv';
+            const finalUrl = proxyUrl + encodeURIComponent(googleSheetUrl);
 
             let charts = {};
+            let fullData = [];
+            let showAssigneeCompleted = false;
+            let showStatusCompleted = false;
 
-            // FIX: Replaced with a robust CSV parser to handle commas and quotes within fields.
-            function parseCSV(text) {
-                const lines = text.trim().split(/\r?\n/);
-                const header = lines.shift().split(',').map(h => h.trim());
+            function showLoader(containerId) {
+                const container = document.getElementById(containerId);
+                if (container) {
+                    container.innerHTML = `<div class="loader-container"><div class="loader"></div></div>`;
+                }
+            }
+
+            async function fetchData() {
+                ['status-chart-container', 'assignee-chart-container', 'platform-chart-container', 'due-soon-list', 'category-chart-container'].forEach(showLoader);
                 
-                const data = lines.map(line => {
-                    const values = [];
-                    let currentVal = '';
-                    let inQuotes = false;
-                    for (let i = 0; i < line.length; i++) {
-                        const char = line[i];
-                        if (char === '"' && (i === 0 || line[i-1] !== '\\')) {
-                             if (inQuotes && line[i+1] === '"') {
-                                currentVal += '"';
-                                i++;
-                            } else {
-                                inQuotes = !inQuotes;
-                            }
-                        } else if (char === ',' && !inQuotes) {
-                            values.push(currentVal);
-                            currentVal = '';
+                try {
+                    const response = await fetch(finalUrl);
+                    if (!response.ok) throw new Error(`Network response was not ok. Status: ${response.status}`);
+                    const csvText = await response.text();
+                    if (!csvText) throw new Error("Live data CSV content is empty.");
+                    return parseCSV(csvText);
+                } catch (error) {
+                    console.error('Error fetching live data:', error);
+                    alert('실시간 데이터를 불러오는 데 실패했습니다. 페이지를 새로고침하거나 관리자에게 문의하세요.');
+                    return [];
+                }
+            }
+            
+            function parseCSV(text) {
+                const data = [];
+                let header = [];
+                let currentRow = [];
+                let currentField = '';
+                let inQuotes = false;
+
+                for (let i = 0; i < text.length; i++) {
+                    const char = text[i];
+                    if (inQuotes) {
+                        if (char === '"' && (i + 1 < text.length && text[i + 1] === '"')) {
+                            currentField += '"'; i++;
+                        } else if (char === '"') {
+                            inQuotes = false;
                         } else {
-                            currentVal += char;
+                            currentField += char;
+                        }
+                    } else {
+                        if (char === '"') {
+                            inQuotes = true;
+                        } else if (char === ',') {
+                            currentRow.push(currentField); currentField = '';
+                        } else if (char === '\n' || char === '\r') {
+                            currentRow.push(currentField);
+                            if (header.length === 0) {
+                                header = currentRow.map(h => h.trim());
+                            } else if (currentRow.length > 1 || (currentRow.length === 1 && currentRow[0] !== '')) {
+                                const entry = {};
+                                header.forEach((key, j) => { entry[key] = currentRow[j] || ''; });
+                                data.push(entry);
+                            }
+                            currentRow = []; currentField = '';
+                            if (char === '\r' && i + 1 < text.length && text[i + 1] === '\n') { i++; }
+                        } else {
+                            currentField += char;
                         }
                     }
-                    values.push(currentVal);
-
-                    const entry = {};
-                    header.forEach((key, i) => {
-                        let value = (values[i] || '').trim();
-                        if (value.startsWith('"') && value.endsWith('"')) {
-                            value = value.slice(1, -1).replace(/""/g, '"');
-                        }
-                        entry[key] = value;
-                    });
-                    return entry;
-                });
+                }
+                if (currentField || currentRow.length > 0) {
+                    currentRow.push(currentField);
+                     if (header.length > 0) {
+                        const entry = {};
+                        header.forEach((key, j) => { entry[key] = currentRow[j] || ''; });
+                        data.push(entry);
+                    }
+                }
                 return data;
             }
             
@@ -193,10 +244,22 @@ Neowiz_HouseOfBlackjack_Issue,2025-07-10 14:26,Neowiz,House of Blackjack 앱 비
                 charts = {};
             }
 
+            function prepareCanvas(containerId) {
+                const container = document.getElementById(containerId);
+                if (!container) return null;
+                container.innerHTML = ''; 
+                const canvas = document.createElement('canvas');
+                container.appendChild(canvas);
+                return canvas.getContext('2d');
+            }
+
             function updateDashboard(data) {
                 if (!data || data.length === 0) {
                     console.warn("No data available to display.");
-                    document.getElementById('total-policies').textContent = 'N/A';
+                    document.getElementById('total-policies').textContent = '0';
+                    document.querySelectorAll('.chart-container, .list-container').forEach(el => {
+                        el.innerHTML = '<div class="text-center text-gray-500 w-full flex items-center justify-center">데이터를 불러오지 못했습니다.</div>';
+                    });
                     return;
                 }
                 
@@ -214,7 +277,7 @@ Neowiz_HouseOfBlackjack_Issue,2025-07-10 14:26,Neowiz,House of Blackjack 앱 비
                 
                 const dueSoonList = document.getElementById('due-soon-list');
                 dueSoonList.innerHTML = '';
-                const today = new Date("2025-07-10"); // Set a fixed date for consistent testing
+                const today = new Date();
                 today.setHours(0, 0, 0, 0);
                 const fourteenDaysLater = new Date(today);
                 fourteenDaysLater.setDate(today.getDate() + 14);
@@ -237,20 +300,11 @@ Neowiz_HouseOfBlackjack_Issue,2025-07-10 14:26,Neowiz,House of Blackjack 앱 비
                         const li = document.createElement('li');
                         const dueDate = new Date(policy[COLUMN_MAP.DUE_DATE]);
                         dueDate.setHours(0, 0, 0, 0);
-                        
                         const diffTime = dueDate.getTime() - today.getTime();
                         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                        
-                        let colorClass = 'bg-gray-100';
-                        let textColorClass = 'text-gray-800';
-                        if (diffDays <= 3) {
-                            colorClass = 'bg-red-50';
-                            textColorClass = 'font-bold text-red-600';
-                        } else if (diffDays <= 7) {
-                            colorClass = 'bg-yellow-50';
-                            textColorClass = 'font-bold text-yellow-600';
-                        }
-
+                        let colorClass = 'bg-gray-100', textColorClass = 'text-gray-800';
+                        if (diffDays <= 3) { colorClass = 'bg-red-50'; textColorClass = 'font-bold text-red-600'; } 
+                        else if (diffDays <= 7) { colorClass = 'bg-yellow-50'; textColorClass = 'font-bold text-yellow-600'; }
                         li.className = `p-2 ${colorClass} rounded-md flex justify-between items-center`;
                         li.innerHTML = `<span>${policy[COLUMN_MAP.TITLE]}</span> <span class="${textColorClass}">D-${diffDays}</span>`;
                         ul.appendChild(li);
@@ -260,37 +314,41 @@ Neowiz_HouseOfBlackjack_Issue,2025-07-10 14:26,Neowiz,House of Blackjack 앱 비
                     dueSoonList.innerHTML = '<div class="text-center text-gray-500 w-full flex items-center justify-center">마감 임박 정책이 없습니다.</div>';
                 }
 
-                // FIX: Pass data to the new stacked bar chart function
-                createAssigneeChart(data.filter(d => d[COLUMN_MAP.STATUS] === '대응중' || d[COLUMN_MAP.STATUS] === '미대응'));
                 createStatusChart(statusPending, statusInprogress, statusCompleted);
-                createCountChart('platform-chart', COLUMN_MAP.PLATFORM, data, '발신처별 정책 분포', 'pie');
-                createCountChart('category-chart', COLUMN_MAP.CATEGORY, data, '카테고리별 정책 분포', 'doughnut');
+                createAssigneeChart(data);
+                createCountChart('platform-chart-container', COLUMN_MAP.PLATFORM, data, '발신처별 정책 분포', 'pie');
+                createCountChart('category-chart-container', COLUMN_MAP.CATEGORY, data, '카테고리별 정책 분포', 'doughnut');
 
                 const now = new Date();
                 document.getElementById('last-updated').textContent = `마지막 업데이트: ${now.toLocaleTimeString('ko-KR')}`;
             }
             
             function createStatusChart(pending, inprogress, completed) {
-                const ctx = document.getElementById('status-chart').getContext('2d');
+                const ctx = prepareCanvas('status-chart-container');
+                if (!ctx) return;
+
+                const labels = ['미대응', '대응중'];
+                const data = [pending, inprogress];
+                const colors = ['#FBBF24', '#2DD4BF'];
+
+                if (showStatusCompleted) {
+                    labels.push('대응완료');
+                    data.push(completed);
+                    colors.push('#34D399');
+                }
+
                 charts.status = new Chart(ctx, {
                     type: 'doughnut',
                     data: {
-                        labels: ['미대응', '대응중', '대응완료'],
-                        datasets: [{
-                            data: [pending, inprogress, completed],
-                            backgroundColor: ['#FBBF24', '#2DD4BF', '#34D399'],
-                            borderColor: '#FFFFFF',
-                            borderWidth: 2
-                        }]
+                        labels: labels,
+                        datasets: [{ data: data, backgroundColor: colors, borderColor: '#FFFFFF', borderWidth: 2 }]
                     },
                     options: { 
-                        responsive: true, 
-                        maintainAspectRatio: false, 
+                        responsive: true, maintainAspectRatio: false, 
                         plugins: { 
                             legend: { position: 'bottom' },
                             datalabels: {
-                                color: '#fff',
-                                font: { weight: 'bold' },
+                                color: '#fff', font: { weight: 'bold' },
                                 formatter: (value, ctx) => {
                                     if (value === 0) return '';
                                     const total = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
@@ -303,56 +361,40 @@ Neowiz_HouseOfBlackjack_Issue,2025-07-10 14:26,Neowiz,House of Blackjack 앱 비
                 });
             }
 
-            // FIX: New function for creating the stacked bar chart for assignees
-            function createAssigneeChart(activeTasks) {
-                const assignees = [...new Set(activeTasks.map(task => task[COLUMN_MAP.ASSIGNEE]).filter(Boolean))];
-                
-                const inProgressData = assignees.map(assignee => 
-                    activeTasks.filter(task => task[COLUMN_MAP.ASSIGNEE] === assignee && task[COLUMN_MAP.STATUS] === '대응중').length
-                );
-                const pendingData = assignees.map(assignee => 
-                    activeTasks.filter(task => task[COLUMN_MAP.ASSIGNEE] === assignee && task[COLUMN_MAP.STATUS] === '미대응').length
-                );
+            function createAssigneeChart(data) {
+                const ctx = prepareCanvas('assignee-chart-container');
+                if (!ctx) return;
 
-                const ctx = document.getElementById('assignee-chart').getContext('2d');
+                const assignees = [...new Set(data.map(task => task[COLUMN_MAP.ASSIGNEE]).filter(Boolean))];
+                
+                const datasets = [];
+                const completedData = assignees.map(assignee => data.filter(task => task[COLUMN_MAP.ASSIGNEE] === assignee && task[COLUMN_MAP.STATUS] === '대응완료').length);
+                const inProgressData = assignees.map(assignee => data.filter(task => task[COLUMN_MAP.ASSIGNEE] === assignee && task[COLUMN_MAP.STATUS] === '대응중').length);
+                const pendingData = assignees.map(assignee => data.filter(task => task[COLUMN_MAP.ASSIGNEE] === assignee && task[COLUMN_MAP.STATUS] === '미대응').length);
+                
+                if (showAssigneeCompleted) {
+                    datasets.push({ label: '대응완료', data: completedData, backgroundColor: '#34D399' });
+                }
+                datasets.push({ label: '대응중', data: inProgressData, backgroundColor: '#2DD4BF' });
+                datasets.push({ label: '미대응', data: pendingData, backgroundColor: '#FBBF24' });
+
                 charts.assignee = new Chart(ctx, {
                     type: 'bar',
-                    data: {
-                        labels: assignees,
-                        datasets: [
-                            {
-                                label: '대응중',
-                                data: inProgressData,
-                                backgroundColor: '#2DD4BF', // Teal
-                            },
-                            {
-                                label: '미대응',
-                                data: pendingData,
-                                backgroundColor: '#FBBF24', // Yellow
-                            }
-                        ]
-                    },
+                    data: { labels: assignees, datasets: datasets },
                     options: {
-                        indexAxis: 'y',
-                        responsive: true,
-                        maintainAspectRatio: false,
+                        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
                         plugins: { 
                             legend: { position: 'bottom' },
-                            datalabels: {
-                                color: '#fff',
-                                font: { weight: 'bold' },
-                                formatter: (value) => value > 0 ? value : ''
-                            }
+                            datalabels: { color: '#fff', font: { weight: 'bold' }, formatter: (value) => value > 0 ? value : '' }
                         },
-                        scales: { 
-                            x: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } }, 
-                            y: { stacked: true } 
-                        }
+                        scales: { x: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } }, y: { stacked: true } }
                     }
                 });
             }
 
-            function createCountChart(canvasId, key, data, title, type) {
+            function createCountChart(containerId, key, data, title, type) {
+                const ctx = prepareCanvas(containerId);
+                if (!ctx) return;
                 const counts = data.reduce((acc, item) => {
                     const value = item[key];
                     if (value) { acc[value] = (acc[value] || 0) + 1; }
@@ -363,21 +405,15 @@ Neowiz_HouseOfBlackjack_Issue,2025-07-10 14:26,Neowiz,House of Blackjack 앱 비
                 const labels = sortedData.map(item => item[0]);
                 const values = sortedData.map(item => item[1]);
 
-                const ctx = document.getElementById(canvasId).getContext('2d');
-                charts[canvasId] = new Chart(ctx, {
+                charts[containerId] = new Chart(ctx, {
                     type: type,
                     data: { labels: labels, datasets: [{ label: title, data: values, backgroundColor: ['#60A5FA', '#818CF8', '#A78BFA', '#F472B6', '#FB923C', '#A3E635'], borderColor: '#FFFFFF', borderWidth: 2 }] },
                     options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
+                        responsive: true, maintainAspectRatio: false,
                         plugins: { 
-                            legend: { 
-                                display: true, 
-                                position: 'bottom' 
-                            },
+                            legend: { display: true, position: 'bottom' },
                             datalabels: {
-                                color: '#fff',
-                                font: { weight: 'bold' },
+                                color: '#fff', font: { weight: 'bold' },
                                 formatter: (value, ctx) => {
                                     if (value === 0) return '';
                                     const total = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
@@ -390,8 +426,26 @@ Neowiz_HouseOfBlackjack_Issue,2025-07-10 14:26,Neowiz,House of Blackjack 앱 비
                 });
             }
 
-            const data = parseCSV(csvData);
-            updateDashboard(data);
+            // Main execution
+            document.getElementById('toggle-assignee-completed').addEventListener('change', (event) => {
+                showAssigneeCompleted = event.target.checked;
+                if (charts.assignee) charts.assignee.destroy();
+                createAssigneeChart(fullData);
+            });
+            
+            document.getElementById('toggle-status-completed').addEventListener('change', (event) => {
+                showStatusCompleted = event.target.checked;
+                if (charts.status) charts.status.destroy();
+                const pending = fullData.filter(d => d[COLUMN_MAP.STATUS] === '미대응').length;
+                const inprogress = fullData.filter(d => d[COLUMN_MAP.STATUS] === '대응중').length;
+                const completed = fullData.filter(d => d[COLUMN_MAP.STATUS] === '대응완료').length;
+                createStatusChart(pending, inprogress, completed);
+            });
+
+            fetchData().then(data => {
+                fullData = data;
+                updateDashboard(fullData);
+            });
         });
     </script>
 </body>
