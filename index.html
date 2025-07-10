@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>정책 대응 현황 대시보드 (실시간)</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -31,16 +32,18 @@
             font-weight: 700;
             line-height: 1.1;
         }
-        .chart-placeholder {
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        .chart-container {
+            position: relative;
             height: 100%;
             min-height: 150px;
-            background-color: #F9FAFB; /* Gray-50 */
-            border-radius: 0.5rem;
-            color: #9CA3AF; /* Gray-400 */
             flex-grow: 1;
+        }
+        .loader-container {
+             display: flex;
+             align-items: center;
+             justify-content: center;
+             height: 100%;
+             min-height: 150px;
         }
         .loader {
             border: 4px solid #f3f3f3;
@@ -92,31 +95,25 @@
             <div class="card lg:col-span-1">
                 <h3 class="font-bold text-lg mb-4">대응 현황 분포</h3>
                 <p class="text-sm text-gray-500 mb-4">현재 '미대응', '대응중', '완료' 상태의 정책 비율을 우선적으로 확인합니다.</p>
-                <div id="status-chart" class="chart-placeholder h-48">
-                    <div class="loader"></div>
-                </div>
+                <div class="chart-container"><canvas id="status-chart"></canvas></div>
             </div>
 
             <div class="card lg:col-span-2">
                 <h3 class="font-bold text-lg mb-4">담당자별 업무 현황</h3>
                 <p class="text-sm text-gray-500 mb-4">각 담당자에게 할당된 '대응중' 및 '미대응' 업무 건수입니다.</p>
-                <div id="assignee-tasks" class="chart-placeholder">
-                     <div class="loader"></div>
-                </div>
+                 <div class="chart-container"><canvas id="assignee-chart"></canvas></div>
             </div>
 
             <div class="card">
                 <h3 class="font-bold text-lg mb-4">플랫폼별 정책 분포</h3>
                 <p class="text-sm text-gray-500 mb-4">어떤 플랫폼에서 정책이 가장 많이 접수되었는지 보여줍니다.</p>
-                <div id="platform-distribution" class="chart-placeholder">
-                    <div class="loader"></div>
-                </div>
+                <div class="chart-container"><canvas id="platform-chart"></canvas></div>
             </div>
 
             <div class="card">
                 <h3 class="font-bold text-lg mb-4">마감 임박 정책 (14일 이내)</h3>
                 <p class="text-sm text-gray-500 mb-4">기한이 얼마 남지 않은 정책 목록입니다.</p>
-                <div id="due-soon-list" class="chart-placeholder">
+                <div id="due-soon-list" class="chart-container loader-container">
                     <div class="loader"></div>
                 </div>
             </div>
@@ -124,65 +121,76 @@
             <div class="card">
                 <h3 class="font-bold text-lg mb-4">카테고리별 정책 분포</h3>
                 <p class="text-sm text-gray-500 mb-4">각 카테고리별 정책이 몇 건 있는지 보여줍니다.</p>
-                <div id="category-distribution" class="chart-placeholder">
-                    <div class="loader"></div>
-                </div>
+                <div class="chart-container"><canvas id="category-chart"></canvas></div>
             </div>
         </div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // =================================================================================
-            // 중요: 이 URL을 실제 구글 시트 '웹에 게시' CSV URL로 변경하세요.
-            // =================================================================================
+            // CORS 문제를 우회하기 위한 프록시 서버 URL
+            const proxyUrl = 'https://api.allorigins.win/raw?url=';
             const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQZqFx7woNy0WcxE1THVLC6GRnfVTX0fHlbjVaf4oj7gcNqQVdmOQCwHBIzxXZtrYFB6vTM6Rfwym5h/pub?output=csv';
+            const finalUrl = proxyUrl + encodeURIComponent(googleSheetUrl);
 
             // 샘플 데이터 (네트워크 문제로 URL 접근 실패 시 사용)
-            const sampleCsvData = `과제명,담당부서,추진현황,담당자,마감일,플랫폼,카테고리\n` +
-                `청년 일자리 지원 확대,기획조정실,대응중,김민준,2025-07-15,홈페이지,일자리\n` +
-                `소상공인 디지털 전환 지원,경제정책과,대응완료,이서연,2025-06-30,정부24,경제\n` +
-                `신재생에너지 보급 정책,환경정책과,대응중,박도윤,2025-07-22,국민신문고,환경\n` +
-                `출산장려금 지원 조건 완화,복지정책과,미대응,최지우,2025-08-01,홈페이지,복지\n` +
-                `AI 기반 민원 시스템 도입,정보화정책과,대응중,김민준,2025-09-10,내부망,IT\n` +
-                `전통시장 활성화 방안,경제정책과,대응완료,이서연,2025-05-20,정부24,경제\n` +
-                `어르신 돌봄 서비스 강화,복지정책과,대응중,박도윤,2025-07-28,국민신문고,복지\n` +
-                `전기차 충전소 확대 설치,환경정책과,미대응,최지우,2025-08-15,홈페이지,환경`;
+            const sampleCsvData = [
+              "과제명,담당부서,추진현황,담당자,마감일,플랫폼,카테고리",
+              "청년 일자리 지원 확대,기획조정실,대응중,김민준,2025-07-15,홈페이지,일자리",
+              "소상공인 디지털 전환 지원,경제정책과,대응완료,이서연,2025-06-30,정부24,경제",
+              "신재생에너지 보급 정책,환경정책과,대응중,박도윤,2025-07-22,국민신문고,환경",
+              "출산장려금 지원 조건 완화,복지정책과,미대응,최지우,2025-08-01,홈페이지,복지",
+              "AI 기반 민원 시스템 도입,정보화정책과,대응중,김민준,2025-09-10,내부망,IT",
+              "전통시장 활성화 방안,경제정책과,대응완료,이서연,2025-05-20,정부24,경제",
+              "어르신 돌봄 서비스 강화,복지정책과,대응중,박도윤,2025-07-28,국민신문고,복지",
+              "전기차 충전소 확대 설치,환경정책과,미대응,최지우,2025-08-15,홈페이지,환경"
+            ].join('\\n');
 
+            let charts = {}; // 차트 인스턴스 저장 객체
 
             async function fetchData() {
                 try {
-                    const response = await fetch(googleSheetUrl);
-                    if (!response.ok) {
-                        // fetch가 실패하면 (e.g., CORS, network error), 샘플 데이터를 사용합니다.
-                        console.warn('Google Sheet fetch failed. Using sample data.');
-                        return parseCSV(sampleCsvData);
-                    }
+                    const response = await fetch(finalUrl);
+                    if (!response.ok) throw new Error('Network response was not ok');
                     const csvText = await response.text();
                     return parseCSV(csvText);
                 } catch (error) {
-                    // 네트워크 에러 등으로 fetch 자체가 실패할 경우 샘플 데이터를 사용합니다.
-                    console.error('Error fetching Google Sheet:', error);
+                    console.error('Error fetching Google Sheet via proxy:', error);
                     console.warn('Using sample data due to fetch error.');
                     return parseCSV(sampleCsvData);
                 }
             }
 
             function parseCSV(text) {
-                const lines = text.split('\\n').filter(line => line);
-                const header = lines[0].split(',');
+                const lines = text.trim().split(/\r?\n/).filter(line => line);
+                if (lines.length < 2) {
+                    console.error("CSV 데이터가 비어있거나 헤더만 존재합니다.");
+                    return [];
+                }
+                const header = lines[0].split(',').map(h => h.trim());
                 const data = lines.slice(1).map(line => {
                     const values = line.split(',');
                     const entry = {};
                     header.forEach((key, i) => {
-                        entry[key.trim()] = values[i] ? values[i].trim() : '';
+                        entry[key] = values[i] ? values[i].trim() : '';
                     });
                     return entry;
                 });
                 return data;
             }
+            
+            function destroyCharts() {
+                Object.values(charts).forEach(chart => chart.destroy());
+            }
 
             function updateDashboard(data) {
+                if (!data || data.length === 0) {
+                    console.error("업데이트할 데이터가 없습니다.");
+                    return;
+                }
+                
+                destroyCharts();
+
                 // 1. KPI 카드 업데이트
                 const totalPolicies = data.length;
                 const statusPending = data.filter(d => d.추진현황 === '미대응').length;
@@ -196,8 +204,9 @@
                 
                 // 2. 마감 임박 정책 목록 업데이트
                 const dueSoonList = document.getElementById('due-soon-list');
-                dueSoonList.innerHTML = ''; // 기존 목록 초기화
+                dueSoonList.innerHTML = '';
                 const today = new Date();
+                today.setHours(0, 0, 0, 0);
                 const fourteenDaysLater = new Date(today);
                 fourteenDaysLater.setDate(today.getDate() + 14);
 
@@ -230,19 +239,80 @@
                     });
                     dueSoonList.appendChild(ul);
                 } else {
-                    dueSoonList.textContent = '마감 임박 정책이 없습니다.';
+                    dueSoonList.innerHTML = '<div class="text-center text-gray-500 w-full flex items-center justify-center">마감 임박 정책이 없습니다.</div>';
                 }
 
-                // 3. 차트 영역 업데이트 (플레이스홀더)
-                // 실제 구현에서는 Chart.js와 같은 라이브러리를 사용하여 이 부분에 차트를 그립니다.
-                document.getElementById('status-chart').innerHTML = '<p class="text-gray-500">대응 현황 차트 영역</p>';
-                document.getElementById('assignee-tasks').innerHTML = '<p class="text-gray-500">담당자별 현황 차트 영역</p>';
-                document.getElementById('platform-distribution').innerHTML = '<p class="text-gray-500">플랫폼별 분포 차트 영역</p>';
-                document.getElementById('category-distribution').innerHTML = '<p class="text-gray-500">카테고리별 분포 차트 영역</p>';
+                // 3. 차트 생성
+                createStatusChart(statusPending, statusInprogress, statusCompleted);
+                createCountChart('assignee-chart', '담당자', data, '담당자별 업무 현황', 'bar', true);
+                createCountChart('platform-chart', '플랫폼', data, '플랫폼별 정책 분포', 'pie');
+                createCountChart('category-chart', '카테고리', data, '카테고리별 정책 분포', 'doughnut');
+
 
                 // 4. 마지막 업데이트 시간 표시
                 const now = new Date();
                 document.getElementById('last-updated').textContent = `마지막 업데이트: ${now.toLocaleTimeString('ko-KR')}`;
+            }
+            
+            function createStatusChart(pending, inprogress, completed) {
+                const ctx = document.getElementById('status-chart').getContext('2d');
+                charts.status = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['미대응', '대응중', '대응완료'],
+                        datasets: [{
+                            data: [pending, inprogress, completed],
+                            backgroundColor: ['#FBBF24', '#2DD4BF', '#34D399'],
+                            borderColor: '#FFFFFF',
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } }
+                    }
+                });
+            }
+
+            function createCountChart(canvasId, key, data, title, type, isHorizontal = false) {
+                const counts = data.reduce((acc, item) => {
+                    const value = item[key];
+                    if (value) {
+                       acc[value] = (acc[value] || 0) + 1;
+                    }
+                    return acc;
+                }, {});
+
+                const sortedData = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+                const labels = sortedData.map(item => item[0]);
+                const values = sortedData.map(item => item[1]);
+
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                charts[canvasId] = new Chart(ctx, {
+                    type: type,
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: title,
+                            data: values,
+                            backgroundColor: ['#60A5FA', '#818CF8', '#A78BFA', '#F472B6', '#FB923C', '#A3E635'],
+                            borderColor: '#FFFFFF',
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        indexAxis: isHorizontal ? 'y' : 'x',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: type === 'bar' ? false : true,
+                                position: 'bottom'
+                            }
+                        }
+                    }
+                });
             }
 
             fetchData().then(data => {
