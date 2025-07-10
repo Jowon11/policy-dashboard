@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>정책 대응 현황 대시보드 (실시간)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+        }
+        .card {
+            background-color: white;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+        }
+        .kpi-card h3 {
+            color: #4B5563; /* Gray-600 */
+        }
+        .kpi-card .value {
+            font-size: 2.25rem; /* 36px */
+            font-weight: 700;
+            line-height: 1.1;
+        }
+        .chart-placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            min-height: 150px;
+            background-color: #F9FAFB; /* Gray-50 */
+            border-radius: 0.5rem;
+            color: #9CA3AF; /* Gray-400 */
+            flex-grow: 1;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-4 sm:p-6 lg:p-8">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="mb-8 flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">정책 대응 현황 대시보드</h1>
+                <p class="text-gray-500 mt-1">AI 기반 자동화 시스템의 모든 현황을 실시간으로 파악합니다.</p>
+            </div>
+            <div id="last-updated" class="text-sm text-gray-500"></div>
+        </header>
+
+        <!-- KPI Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="card kpi-card border-l-4 border-blue-500">
+                <h3 class="font-semibold">총 정책 수</h3>
+                <p id="total-policies" class="value text-blue-500">0</p>
+            </div>
+            <div class="card kpi-card border-l-4 border-yellow-500">
+                <h3 class="font-semibold">미대응</h3>
+                <p id="status-pending" class="value text-yellow-500">0</p>
+            </div>
+            <div class="card kpi-card border-l-4 border-teal-500">
+                <h3 class="font-semibold">대응중</h3>
+                <p id="status-inprogress" class="value text-teal-500">0</p>
+            </div>
+            <div class="card kpi-card border-l-4 border-green-500">
+                <h3 class="font-semibold">대응완료</h3>
+                <p id="status-completed" class="value text-green-500">0</p>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="card lg:col-span-1">
+                <h3 class="font-bold text-lg mb-4">대응 현황 분포</h3>
+                <p class="text-sm text-gray-500 mb-4">현재 '미대응', '대응중', '완료' 상태의 정책 비율을 우선적으로 확인합니다.</p>
+                <div id="status-chart" class="chart-placeholder h-48">
+                    <div class="loader"></div>
+                </div>
+            </div>
+
+            <div class="card lg:col-span-2">
+                <h3 class="font-bold text-lg mb-4">담당자별 업무 현황</h3>
+                <p class="text-sm text-gray-500 mb-4">각 담당자에게 할당된 '대응중' 및 '미대응' 업무 건수입니다.</p>
+                <div id="assignee-tasks" class="chart-placeholder">
+                     <div class="loader"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 class="font-bold text-lg mb-4">플랫폼별 정책 분포</h3>
+                <p class="text-sm text-gray-500 mb-4">어떤 플랫폼에서 정책이 가장 많이 접수되었는지 보여줍니다.</p>
+                <div id="platform-distribution" class="chart-placeholder">
+                    <div class="loader"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 class="font-bold text-lg mb-4">마감 임박 정책 (14일 이내)</h3>
+                <p class="text-sm text-gray-500 mb-4">기한이 얼마 남지 않은 정책 목록입니다.</p>
+                <div id="due-soon-list" class="chart-placeholder">
+                    <div class="loader"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 class="font-bold text-lg mb-4">카테고리별 정책 분포</h3>
+                <p class="text-sm text-gray-500 mb-4">각 카테고리별 정책이 몇 건 있는지 보여줍니다.</p>
+                <div id="category-distribution" class="chart-placeholder">
+                    <div class="loader"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // =================================================================================
+            // 중요: 이 URL을 실제 구글 시트 '웹에 게시' CSV URL로 변경하세요.
+            // =================================================================================
+            const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQZqFx7woNy0WcxE1THVLC6GRnfVTX0fHlbjVaf4oj7gcNqQVdmOQCwHBIzxXZtrYFB6vTM6Rfwym5h/pub?output=csv';
+
+            // 샘플 데이터 (네트워크 문제로 URL 접근 실패 시 사용)
+            const sampleCsvData = `과제명,담당부서,추진현황,담당자,마감일,플랫폼,카테고리\n` +
+                `청년 일자리 지원 확대,기획조정실,대응중,김민준,2025-07-15,홈페이지,일자리\n` +
+                `소상공인 디지털 전환 지원,경제정책과,대응완료,이서연,2025-06-30,정부24,경제\n` +
+                `신재생에너지 보급 정책,환경정책과,대응중,박도윤,2025-07-22,국민신문고,환경\n` +
+                `출산장려금 지원 조건 완화,복지정책과,미대응,최지우,2025-08-01,홈페이지,복지\n` +
+                `AI 기반 민원 시스템 도입,정보화정책과,대응중,김민준,2025-09-10,내부망,IT\n` +
+                `전통시장 활성화 방안,경제정책과,대응완료,이서연,2025-05-20,정부24,경제\n` +
+                `어르신 돌봄 서비스 강화,복지정책과,대응중,박도윤,2025-07-28,국민신문고,복지\n` +
+                `전기차 충전소 확대 설치,환경정책과,미대응,최지우,2025-08-15,홈페이지,환경`;
+
+
+            async function fetchData() {
+                try {
+                    const response = await fetch(googleSheetUrl);
+                    if (!response.ok) {
+                        // fetch가 실패하면 (e.g., CORS, network error), 샘플 데이터를 사용합니다.
+                        console.warn('Google Sheet fetch failed. Using sample data.');
+                        return parseCSV(sampleCsvData);
+                    }
+                    const csvText = await response.text();
+                    return parseCSV(csvText);
+                } catch (error) {
+                    // 네트워크 에러 등으로 fetch 자체가 실패할 경우 샘플 데이터를 사용합니다.
+                    console.error('Error fetching Google Sheet:', error);
+                    console.warn('Using sample data due to fetch error.');
+                    return parseCSV(sampleCsvData);
+                }
+            }
+
+            function parseCSV(text) {
+                const lines = text.split('\\n').filter(line => line);
+                const header = lines[0].split(',');
+                const data = lines.slice(1).map(line => {
+                    const values = line.split(',');
+                    const entry = {};
+                    header.forEach((key, i) => {
+                        entry[key.trim()] = values[i] ? values[i].trim() : '';
+                    });
+                    return entry;
+                });
+                return data;
+            }
+
+            function updateDashboard(data) {
+                // 1. KPI 카드 업데이트
+                const totalPolicies = data.length;
+                const statusPending = data.filter(d => d.추진현황 === '미대응').length;
+                const statusInprogress = data.filter(d => d.추진현황 === '대응중').length;
+                const statusCompleted = data.filter(d => d.추진현황 === '대응완료').length;
+
+                document.getElementById('total-policies').textContent = totalPolicies;
+                document.getElementById('status-pending').textContent = statusPending;
+                document.getElementById('status-inprogress').textContent = statusInprogress;
+                document.getElementById('status-completed').textContent = statusCompleted;
+                
+                // 2. 마감 임박 정책 목록 업데이트
+                const dueSoonList = document.getElementById('due-soon-list');
+                dueSoonList.innerHTML = ''; // 기존 목록 초기화
+                const today = new Date();
+                const fourteenDaysLater = new Date(today);
+                fourteenDaysLater.setDate(today.getDate() + 14);
+
+                const dueSoonPolicies = data
+                    .filter(d => d.마감일 && new Date(d.마감일) >= today && new Date(d.마감일) <= fourteenDaysLater)
+                    .sort((a, b) => new Date(a.마감일) - new Date(b.마감일));
+
+                if (dueSoonPolicies.length > 0) {
+                    const ul = document.createElement('ul');
+                    ul.className = 'space-y-2 text-sm w-full';
+                    dueSoonPolicies.forEach(policy => {
+                        const li = document.createElement('li');
+                        const dueDate = new Date(policy.마감일);
+                        const diffTime = dueDate - today;
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                        
+                        let colorClass = 'bg-gray-100';
+                        let textColorClass = 'text-gray-800';
+                        if (diffDays <= 3) {
+                            colorClass = 'bg-red-50';
+                            textColorClass = 'font-bold text-red-600';
+                        } else if (diffDays <= 7) {
+                            colorClass = 'bg-yellow-50';
+                            textColorClass = 'font-bold text-yellow-600';
+                        }
+
+                        li.className = `p-2 ${colorClass} rounded-md flex justify-between items-center`;
+                        li.innerHTML = `<span>${policy.과제명}</span> <span class="${textColorClass}">D-${diffDays}</span>`;
+                        ul.appendChild(li);
+                    });
+                    dueSoonList.appendChild(ul);
+                } else {
+                    dueSoonList.textContent = '마감 임박 정책이 없습니다.';
+                }
+
+                // 3. 차트 영역 업데이트 (플레이스홀더)
+                // 실제 구현에서는 Chart.js와 같은 라이브러리를 사용하여 이 부분에 차트를 그립니다.
+                document.getElementById('status-chart').innerHTML = '<p class="text-gray-500">대응 현황 차트 영역</p>';
+                document.getElementById('assignee-tasks').innerHTML = '<p class="text-gray-500">담당자별 현황 차트 영역</p>';
+                document.getElementById('platform-distribution').innerHTML = '<p class="text-gray-500">플랫폼별 분포 차트 영역</p>';
+                document.getElementById('category-distribution').innerHTML = '<p class="text-gray-500">카테고리별 분포 차트 영역</p>';
+
+                // 4. 마지막 업데이트 시간 표시
+                const now = new Date();
+                document.getElementById('last-updated').textContent = `마지막 업데이트: ${now.toLocaleTimeString('ko-KR')}`;
+            }
+
+            fetchData().then(data => {
+                if (data) {
+                    updateDashboard(data);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
