@@ -35,7 +35,12 @@
         .chart-container {
             position: relative;
             height: 100%;
-            min-height: 150px;
+            min-height: 250px; /* 차트 높이 확보 */
+            flex-grow: 1;
+        }
+        .list-container {
+            height: 100%;
+            min-height: 250px;
             flex-grow: 1;
         }
         .loader-container {
@@ -105,15 +110,15 @@
             </div>
 
             <div class="card">
-                <h3 class="font-bold text-lg mb-4">플랫폼별 정책 분포</h3>
-                <p class="text-sm text-gray-500 mb-4">어떤 플랫폼에서 정책이 가장 많이 접수되었는지 보여줍니다.</p>
+                <h3 class="font-bold text-lg mb-4">발신처별 정책 분포</h3>
+                <p class="text-sm text-gray-500 mb-4">어떤 발신처에서 정책이 가장 많이 접수되었는지 보여줍니다.</p>
                 <div class="chart-container"><canvas id="platform-chart"></canvas></div>
             </div>
 
             <div class="card">
                 <h3 class="font-bold text-lg mb-4">마감 임박 정책 (14일 이내)</h3>
                 <p class="text-sm text-gray-500 mb-4">기한이 얼마 남지 않은 정책 목록입니다.</p>
-                <div id="due-soon-list" class="chart-container loader-container">
+                <div id="due-soon-list" class="list-container loader-container">
                     <div class="loader"></div>
                 </div>
             </div>
@@ -128,31 +133,40 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // CORS 문제를 우회하기 위한 프록시 서버 URL
+            // =================================================================================
+            // ★★★ 실제 구글 시트의 컬럼(열) 이름과 일치하는지 확인해주세요 ★★★
+            // =================================================================================
+            const COLUMN_MAP = {
+                STATUS: '상태',
+                ASSIGNEE: '담당자',
+                DUE_DATE: '마감/적용일',
+                PLATFORM: '발신처',
+                CATEGORY: '카테고리',
+                TITLE: '정책명'
+            };
+            
             const proxyUrl = 'https://api.allorigins.win/raw?url=';
             const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQZqFx7woNy0WcxE1THVLC6GRnfVTX0fHlbjVaf4oj7gcNqQVdmOQCwHBIzxXZtrYFB6vTM6Rfwym5h/pub?output=csv';
             const finalUrl = proxyUrl + encodeURIComponent(googleSheetUrl);
 
-            // 샘플 데이터 (네트워크 문제로 URL 접근 실패 시 사용)
+            // 샘플 데이터 (실제 컬럼 이름에 맞게 수정됨)
             const sampleCsvData = [
-              "과제명,담당부서,추진현황,담당자,마감일,플랫폼,카테고리",
-              "청년 일자리 지원 확대,기획조정실,대응중,김민준,2025-07-15,홈페이지,일자리",
-              "소상공인 디지털 전환 지원,경제정책과,대응완료,이서연,2025-06-30,정부24,경제",
-              "신재생에너지 보급 정책,환경정책과,대응중,박도윤,2025-07-22,국민신문고,환경",
-              "출산장려금 지원 조건 완화,복지정책과,미대응,최지우,2025-08-01,홈페이지,복지",
-              "AI 기반 민원 시스템 도입,정보화정책과,대응중,김민준,2025-09-10,내부망,IT",
-              "전통시장 활성화 방안,경제정책과,대응완료,이서연,2025-05-20,정부24,경제",
-              "어르신 돌봄 서비스 강화,복지정책과,대응중,박도윤,2025-07-28,국민신문고,복지",
-              "전기차 충전소 확대 설치,환경정책과,미대응,최지우,2025-08-15,홈페이지,환경"
-            ].join('\\n');
+              "정책ID,수신일,발신처,정책명,AI요약,주요변경사항,카테고리,마감/적용일,상태,담당자,메모,원문 메일",
+              "ID-001,2025-07-01,홈페이지,청년 일자리 지원 확대,요약,변경사항,일자리,2025-07-15,대응중,김민준,메모,메일링크",
+              "ID-002,2025-06-15,정부24,소상공인 디지털 전환 지원,요약,변경사항,경제,2025-06-30,대응완료,이서연,메모,메일링크",
+              "ID-003,2025-07-05,국민신문고,신재생에너지 보급 정책,요약,변경사항,환경,2025-07-22,대응중,박도윤,메모,메일링크",
+              "ID-004,2025-07-10,홈페이지,출산장려금 지원 조건 완화,요약,변경사항,복지,2025-08-01,미대응,최지우,메모,메일링크"
+            ].join('\n');
 
-            let charts = {}; // 차트 인스턴스 저장 객체
+            let charts = {};
 
             async function fetchData() {
                 try {
                     const response = await fetch(finalUrl);
                     if (!response.ok) throw new Error('Network response was not ok');
-                    const csvText = await response.text();
+                    const jsonResponse = await response.json();
+                    const csvText = jsonResponse.contents;
+                    if (!csvText) throw new Error("CSV content not found in proxy response.");
                     return parseCSV(csvText);
                 } catch (error) {
                     console.error('Error fetching Google Sheet via proxy:', error);
@@ -163,11 +177,11 @@
 
             function parseCSV(text) {
                 const lines = text.trim().split(/\r?\n/).filter(line => line);
-                if (lines.length < 2) {
-                    console.error("CSV 데이터가 비어있거나 헤더만 존재합니다.");
-                    return [];
-                }
-                const header = lines[0].split(',').map(h => h.trim());
+                if (lines.length < 2) return [];
+                const headerLine = lines[0];
+                const cleanedHeaderLine = headerLine.charCodeAt(0) === 0xFEFF ? headerLine.substring(1) : headerLine;
+                const header = cleanedHeaderLine.split(',').map(h => h.trim());
+                console.log("감지된 컬럼 이름:", header);
                 const data = lines.slice(1).map(line => {
                     const values = line.split(',');
                     const entry = {};
@@ -180,46 +194,45 @@
             }
             
             function destroyCharts() {
-                Object.values(charts).forEach(chart => chart.destroy());
+                Object.values(charts).forEach(chart => {
+                    if (chart) chart.destroy();
+                });
+                charts = {};
             }
 
             function updateDashboard(data) {
-                if (!data || data.length === 0) {
-                    console.error("업데이트할 데이터가 없습니다.");
-                    return;
-                }
+                if (!data || data.length === 0) return;
                 
                 destroyCharts();
 
-                // 1. KPI 카드 업데이트
                 const totalPolicies = data.length;
-                const statusPending = data.filter(d => d.추진현황 === '미대응').length;
-                const statusInprogress = data.filter(d => d.추진현황 === '대응중').length;
-                const statusCompleted = data.filter(d => d.추진현황 === '대응완료').length;
+                const statusPending = data.filter(d => d[COLUMN_MAP.STATUS] === '미대응').length;
+                const statusInprogress = data.filter(d => d[COLUMN_MAP.STATUS] === '대응중').length;
+                const statusCompleted = data.filter(d => d[COLUMN_MAP.STATUS] === '대응완료').length;
 
                 document.getElementById('total-policies').textContent = totalPolicies;
                 document.getElementById('status-pending').textContent = statusPending;
                 document.getElementById('status-inprogress').textContent = statusInprogress;
                 document.getElementById('status-completed').textContent = statusCompleted;
                 
-                // 2. 마감 임박 정책 목록 업데이트
                 const dueSoonList = document.getElementById('due-soon-list');
                 dueSoonList.innerHTML = '';
+                dueSoonList.classList.remove('loader-container');
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
                 const fourteenDaysLater = new Date(today);
                 fourteenDaysLater.setDate(today.getDate() + 14);
 
                 const dueSoonPolicies = data
-                    .filter(d => d.마감일 && new Date(d.마감일) >= today && new Date(d.마감일) <= fourteenDaysLater)
-                    .sort((a, b) => new Date(a.마감일) - new Date(b.마감일));
+                    .filter(d => d[COLUMN_MAP.DUE_DATE] && new Date(d[COLUMN_MAP.DUE_DATE]) >= today && new Date(d[COLUMN_MAP.DUE_DATE]) <= fourteenDaysLater)
+                    .sort((a, b) => new Date(a[COLUMN_MAP.DUE_DATE]) - new Date(b[COLUMN_MAP.DUE_DATE]));
 
                 if (dueSoonPolicies.length > 0) {
                     const ul = document.createElement('ul');
                     ul.className = 'space-y-2 text-sm w-full';
                     dueSoonPolicies.forEach(policy => {
                         const li = document.createElement('li');
-                        const dueDate = new Date(policy.마감일);
+                        const dueDate = new Date(policy[COLUMN_MAP.DUE_DATE]);
                         const diffTime = dueDate - today;
                         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                         
@@ -234,7 +247,7 @@
                         }
 
                         li.className = `p-2 ${colorClass} rounded-md flex justify-between items-center`;
-                        li.innerHTML = `<span>${policy.과제명}</span> <span class="${textColorClass}">D-${diffDays}</span>`;
+                        li.innerHTML = `<span>${policy[COLUMN_MAP.TITLE]}</span> <span class="${textColorClass}">D-${diffDays}</span>`;
                         ul.appendChild(li);
                     });
                     dueSoonList.appendChild(ul);
@@ -242,14 +255,12 @@
                     dueSoonList.innerHTML = '<div class="text-center text-gray-500 w-full flex items-center justify-center">마감 임박 정책이 없습니다.</div>';
                 }
 
-                // 3. 차트 생성
                 createStatusChart(statusPending, statusInprogress, statusCompleted);
-                createCountChart('assignee-chart', '담당자', data, '담당자별 업무 현황', 'bar', true);
-                createCountChart('platform-chart', '플랫폼', data, '플랫폼별 정책 분포', 'pie');
-                createCountChart('category-chart', '카테고리', data, '카테고리별 정책 분포', 'doughnut');
+                const activeTasks = data.filter(d => d[COLUMN_MAP.STATUS] === '대응중' || d[COLUMN_MAP.STATUS] === '미대응');
+                createCountChart('assignee-chart', COLUMN_MAP.ASSIGNEE, activeTasks, '담당자별 업무 현황', 'bar', true);
+                createCountChart('platform-chart', COLUMN_MAP.PLATFORM, data, '발신처별 정책 분포', 'pie');
+                createCountChart('category-chart', COLUMN_MAP.CATEGORY, data, '카테고리별 정책 분포', 'doughnut');
 
-
-                // 4. 마지막 업데이트 시간 표시
                 const now = new Date();
                 document.getElementById('last-updated').textContent = `마지막 업데이트: ${now.toLocaleTimeString('ko-KR')}`;
             }
@@ -267,20 +278,14 @@
                             borderWidth: 2
                         }]
                     },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { position: 'bottom' } }
-                    }
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
                 });
             }
 
             function createCountChart(canvasId, key, data, title, type, isHorizontal = false) {
                 const counts = data.reduce((acc, item) => {
                     const value = item[key];
-                    if (value) {
-                       acc[value] = (acc[value] || 0) + 1;
-                    }
+                    if (value) { acc[value] = (acc[value] || 0) + 1; }
                     return acc;
                 }, {});
 
@@ -291,26 +296,13 @@
                 const ctx = document.getElementById(canvasId).getContext('2d');
                 charts[canvasId] = new Chart(ctx, {
                     type: type,
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: title,
-                            data: values,
-                            backgroundColor: ['#60A5FA', '#818CF8', '#A78BFA', '#F472B6', '#FB923C', '#A3E635'],
-                            borderColor: '#FFFFFF',
-                            borderWidth: 2
-                        }]
-                    },
+                    data: { labels: labels, datasets: [{ label: title, data: values, backgroundColor: ['#60A5FA', '#818CF8', '#A78BFA', '#F472B6', '#FB923C', '#A3E635'], borderColor: '#FFFFFF', borderWidth: 2 }] },
                     options: {
                         indexAxis: isHorizontal ? 'y' : 'x',
                         responsive: true,
                         maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                display: type === 'bar' ? false : true,
-                                position: 'bottom'
-                            }
-                        }
+                        plugins: { legend: { display: type === 'bar' ? false : true, position: 'bottom' } },
+                        scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } }, y: { beginAtZero: true } }
                     }
                 });
             }
