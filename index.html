@@ -148,12 +148,12 @@
             const proxyUrl = 'https://api.allorigins.win/raw?url=';
             const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQZqFx7woNy0WcxE1THVLC6GRnfVTX0fHlbjVaf4oj7gcNqQVdmOQCwHBIzxXZtrYFB6vTM6Rfwym5h/pub?output=csv';
             const finalUrl = proxyUrl + encodeURIComponent(googleSheetUrl);
-
-            // 샘플 데이터 (실제 컬럼 이름에 맞게 수정됨)
+            
+            // 샘플 데이터 (네트워크 오류 발생 시 대체용)
             const sampleCsvData = [
               "정책ID,수신일,발신처,정책명,AI요약,주요변경사항,카테고리,마감/적용일,상태,담당자,메모,원문 메일",
-              "ID-001,2025-07-01,홈페이지,청년 일자리 지원 확대,요약,변경사항,일자리,2025-07-15,대응중,김민준,메모,메일링크",
-              "ID-002,2025-06-15,정부24,소상공인 디지털 전환 지원,요약,변경사항,경제,2025-06-30,대응완료,이서연,메모,메일링크",
+              "ID-001,2025-07-01,홈페이지,청년 일자리 지원 확대,요약,변경사항,일자리,2025-07-20,대응중,김민준,메모,메일링크",
+              "ID-002,2025-06-15,정부24,소상공인 디지털 전환 지원,요약,변경사항,경제,2025-07-18,대응완료,이서연,메모,메일링크",
               "ID-003,2025-07-05,국민신문고,신재생에너지 보급 정책,요약,변경사항,환경,2025-07-22,대응중,박도윤,메모,메일링크",
               "ID-004,2025-07-10,홈페이지,출산장려금 지원 조건 완화,요약,변경사항,복지,2025-08-01,미대응,최지우,메모,메일링크"
             ].join('\n');
@@ -164,32 +164,58 @@
                 try {
                     const response = await fetch(finalUrl);
                     if (!response.ok) throw new Error('Network response was not ok');
-                    const jsonResponse = await response.json();
-                    const csvText = jsonResponse.contents;
+                    const csvText = await response.text();
                     if (!csvText) throw new Error("CSV content not found in proxy response.");
                     return parseCSV(csvText);
                 } catch (error) {
                     console.error('Error fetching Google Sheet via proxy:', error);
+                    // FIX: 네트워크 오류 시 샘플 데이터를 사용하도록 수정
                     console.warn('Using sample data due to fetch error.');
                     return parseCSV(sampleCsvData);
                 }
             }
-
+            
             function parseCSV(text) {
-                const lines = text.trim().split(/\r?\n/).filter(line => line);
+                const lines = text.trim().split(/\r?\n/);
                 if (lines.length < 2) return [];
+
+                const parseLine = (line) => {
+                    const values = [];
+                    let currentVal = '';
+                    let inQuotes = false;
+                    for (let i = 0; i < line.length; i++) {
+                        const char = line[i];
+                        if (char === '"' && (i === 0 || line[i-1] !== '\\')) {
+                             if (inQuotes && line[i+1] === '"') {
+                                currentVal += '"';
+                                i++;
+                            } else {
+                                inQuotes = !inQuotes;
+                            }
+                        } else if (char === ',' && !inQuotes) {
+                            values.push(currentVal);
+                            currentVal = '';
+                        } else {
+                            currentVal += char;
+                        }
+                    }
+                    values.push(currentVal);
+                    return values.map(v => v.trim());
+                };
+                
                 const headerLine = lines[0];
-                const cleanedHeaderLine = headerLine.charCodeAt(0) === 0xFEFF ? headerLine.substring(1) : headerLine;
-                const header = cleanedHeaderLine.split(',').map(h => h.trim());
+                const header = parseLine(headerLine);
                 console.log("감지된 컬럼 이름:", header);
+
                 const data = lines.slice(1).map(line => {
-                    const values = line.split(',');
+                    if (!line.trim()) return null;
+                    const values = parseLine(line);
                     const entry = {};
                     header.forEach((key, i) => {
-                        entry[key] = values[i] ? values[i].trim() : '';
+                        entry[key] = values[i] || '';
                     });
                     return entry;
-                });
+                }).filter(Boolean);
                 return data;
             }
             
@@ -201,7 +227,11 @@
             }
 
             function updateDashboard(data) {
-                if (!data || data.length === 0) return;
+                if (!data || data.length === 0) {
+                    console.warn("데이터가 없거나 로드에 실패했습니다.");
+                    document.getElementById('total-policies').textContent = 'N/A';
+                    return;
+                }
                 
                 destroyCharts();
 
@@ -224,7 +254,13 @@
                 fourteenDaysLater.setDate(today.getDate() + 14);
 
                 const dueSoonPolicies = data
-                    .filter(d => d[COLUMN_MAP.DUE_DATE] && new Date(d[COLUMN_MAP.DUE_DATE]) >= today && new Date(d[COLUMN_MAP.DUE_DATE]) <= fourteenDaysLater)
+                    .filter(d => {
+                        if (!d[COLUMN_MAP.DUE_DATE]) return false;
+                        const dueDate = new Date(d[COLUMN_MAP.DUE_DATE]);
+                        if (isNaN(dueDate.getTime())) return false;
+                        dueDate.setHours(0, 0, 0, 0);
+                        return dueDate >= today && dueDate <= fourteenDaysLater;
+                    })
                     .sort((a, b) => new Date(a[COLUMN_MAP.DUE_DATE]) - new Date(b[COLUMN_MAP.DUE_DATE]));
 
                 if (dueSoonPolicies.length > 0) {
@@ -233,7 +269,9 @@
                     dueSoonPolicies.forEach(policy => {
                         const li = document.createElement('li');
                         const dueDate = new Date(policy[COLUMN_MAP.DUE_DATE]);
-                        const diffTime = dueDate - today;
+                        dueDate.setHours(0, 0, 0, 0);
+                        
+                        const diffTime = dueDate.getTime() - today.getTime();
                         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                         
                         let colorClass = 'bg-gray-100';
@@ -308,9 +346,7 @@
             }
 
             fetchData().then(data => {
-                if (data) {
-                    updateDashboard(data);
-                }
+                updateDashboard(data);
             });
         });
     </script>
